@@ -3,3 +3,4 @@ torch
 gradio
 datasets
 faiss-cpu
+sentence-transformers
