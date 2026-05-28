@@ -2,3 +2,4 @@ numpy
 torch
 gradio
 datasets
+faiss-cpu
