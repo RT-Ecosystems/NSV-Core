@@ -1,5 +1,6 @@
 import numpy as np
 from .nsv_tokenizer import NSV_Tokenizer
+from sentence_transformers import SentenceTransformer # [NEW] असली Learned Embeddings के लिए
 
 class NSV_Core:
     def __init__(self, base_dim=10000):
@@ -7,13 +8,11 @@ class NSV_Core:
         self.base_dim = base_dim
         self.alphabet_vectors = {}
         
-        # रास्ता 1: सेमेंटिक क्लाउड मैप (Genuinely solves doctor <-> hospital issue)
-        self.semantic_anchors = {
-            "medical": ["doctor", "hospital", "medicine", "nurse", "clinic", "treatment"],
-            "programming": ["code", "coding", "programmer", "debugging", "python", "bug", "compiler"],
-            "finance": ["bank", "money", "cash", "finance", "wallet", "investment"]
-        }
-        print(f"🧬 NSV सेमेंटिक कोर v2 सक्रिय! एंकर मैपिंग लोड हो चुकी है।")
+        # [NEW] Phase 1: Learned Semantic Seeds (नकली डिक्शनरी हटा दी गई)
+        # यह सिर्फ 80MB का मॉडल है जो CPU पर सुपर-फास्ट चलता है 
+        print("📥 लाइटवेट सेमेंटिक एंकर मॉडल लोड हो रहा है...")
+        self.semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
+        print("🧬 NSV सेमेंटिक कोर v2 सक्रिय! असली 'Learned Embeddings' तैयार हैं।")
 
     def _get_char_vector(self, char):
         if char not in self.alphabet_vectors:
@@ -22,15 +21,17 @@ class NSV_Core:
             self.alphabet_vectors[char] = np.random.choice([-1, 1], size=self.base_dim)
         return self.alphabet_vectors[char]
 
-    def _get_domain_vector(self, word):
-        """चेक करता है कि क्या शब्द का कोई गहरा सेमेंटिक संबंध किसी डोमेन से है?"""
-        for domain, words in self.semantic_anchors.items():
-            if word in words:
-                # डोमेन के नाम से एक फिक्स बेस-वेक्टर जनरेट करना
-                seed = abs(hash(domain)) % (2**32)
-                np.random.seed(seed)
-                return np.random.choice([-1, 1], size=self.base_dim)
-        return np.zeros(self.base_dim) # अगर कोई डोमेन मैच न हो
+    def _get_learned_semantic_vector(self, word):
+        """[NEW] यह शब्द का असली दुनिया का अर्थ (Embeddings) निकालेगा और उसे HDC के बेस डायमेंशन में प्रोजेक्ट करेगा।"""
+        # असली AI से शब्द का अर्थ निकालना (384 डायमेंशन)
+        small_embedding = self.semantic_model.encode(word)
+        
+        # इसे हमारे 10000 डायमेंशन के HDC स्पेस में फैलाना (Projection)
+        np.random.seed(abs(hash(word)) % (2**32))
+        projection_matrix = np.random.randn(self.base_dim, len(small_embedding))
+        
+        projected_vector = np.dot(projection_matrix, small_embedding)
+        return np.sign(projected_vector) # इसे वापस -1 और +1 में बदल देना
 
     def generate_neuro_print(self, input_text):
         words = self.tokenizer.tokenize(input_text)
@@ -49,14 +50,13 @@ class NSV_Core:
                 shifted_vec = np.roll(vec, shift=i)
                 word_vector = word_vector * shifted_vec
             
-            # गहरा अर्थ (Semantic Anchoring)
-            domain_vector = self._get_domain_vector(word)
+            # [NEW] असली गहरा अर्थ (Learned Semantic Anchoring)
+            semantic_vector = self._get_learned_semantic_vector(word)
             
-            # स्पेलिंग वाले वेक्टर में उसके गहरे अर्थ (Concept) को भी जोड़ देना
-            final_word_vector = word_vector + domain_vector
+            # स्पेलिंग (Symbolic) और अर्थ (Learned) का असली हाइब्रिड
+            final_word_vector = word_vector + semantic_vector
             text_vector += final_word_vector
 
-        # न्यूरो-प्रिंट को फाइनल शेप देना
         semantic_print = np.sign(text_vector)
         semantic_print[semantic_print == 0] = 1
         
